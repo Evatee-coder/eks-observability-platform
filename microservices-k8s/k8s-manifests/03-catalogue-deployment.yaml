@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalogue
+  namespace: craftica
+  labels:
+    app: catalogue
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: catalogue
+  template:
+    metadata:
+      labels:
+        app: catalogue
+        tier: backend
+    spec:
+      containers:
+      - name: catalogue
+        image: 216989097838.dkr.ecr.us-east-1.amazonaws.com/prod-craftica-catalogue:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5000
+          name: http
+        env:
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: catalogue-db-secrets
+              key: db_user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: catalogue-db-secrets
+              key: db_password
+        - name: APP_VERSION
+          valueFrom:
+            configMapKeyRef:
+              name: catalogue-config
+              key: app_version
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config.json
+          subPath: config.json
+        - name: db-config-volume
+          mountPath: /app/db-config
+        - name: db-secrets-volume
+          mountPath: /app/secrets
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: config-volume
+        configMap:
+          name: catalogue-config
+          items:
+          - key: config.json
+            path: config.json
+      - name: db-config-volume
+        configMap:
+          name: catalogue-config
+          items:
+          - key: db-config.properties
+            path: db-config.properties
+      - name: db-secrets-volume
+        secret:
+          secretName: catalogue-db-secrets

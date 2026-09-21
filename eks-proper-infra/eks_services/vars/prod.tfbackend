@@ -1,0 +1,4 @@
+bucket  = "state-bucket-216989097838"
+key     = "eks/prod/microservices/eks-services/terraform.tfstate"
+region  = "us-east-1"
+encrypt = true
