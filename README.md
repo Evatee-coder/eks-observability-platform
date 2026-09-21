@@ -8,13 +8,15 @@
 [![AWS](https://img.shields.io/badge/AWS-EKS-232F3E?logo=amazonaws&logoColor=white)](https://aws.amazon.com/eks/)
 
 
-This project provisions a production-style monitoring and observability stack on Amazon EKS using **Terraform and Helm charts**. Terraform manages the Helm deployments of **Prometheus, Grafana, Alertmanager, metrics-server, node-exporter, and kube-state-metrics**, providing automated metrics collection, visualization, and alerting for Kubernetes infrastructure and four instrumented microservices.
+This project provisions a production-style monitoring and observability stack on Amazon EKS using **Terraform and Helm charts**. Terraform manages the Helm releases that deploy and configure Prometheus, Grafana, Alertmanager, metrics-server, node-exporter, and kube-state-metrics inside the EKS cluster.
 
 The platform extends the [EKS Microservices GitOps Platform](https://github.com/Evatee-coder/eks-microservices-gitops-platform) and addresses the operational gap between successfully deploying applications and understanding their health, latency, errors, dependencies, and resource consumption in a live Kubernetes environment.
 
-Prometheus automatically discovers application metrics endpoints through Prometheus Operator `ServiceMonitor` resources. Grafana provides cluster-level and application-level dashboards, while Alertmanager evaluates and routes operational alerts. Amazon EBS provides persistent storage, and the AWS Load Balancer Controller exposes the monitoring interfaces through HTTPS-enabled Application Load Balancer ingress.
+Prometheus uses Prometheus Operator `ServiceMonitor` resources to discover application metrics endpoints through Kubernetes labels. Grafana provides cluster-level and application-level dashboards covering workload health, resource utilization, request rates, HTTP errors, P95 latency, service dependencies, database connectivity, and application runtime behavior.
 
-The observability stack is maintained separately from the application and cluster repositories so that monitoring configuration, dashboards, alert rules, scrape targets, and retention policies can evolve without coupling observability changes to application releases.
+Prometheus and Grafana use Amazon EBS-backed persistent volumes, while the AWS Load Balancer Controller provides HTTPS access through Application Load Balancer ingress. Alertmanager is installed as part of the monitoring stack, but automated application alert rules and external notification routing are reserved for the next phase of the project.
+
+The observability stack is maintained separately from the application and cluster infrastructure repositories. This separation allows monitoring configuration, dashboards, scrape targets, retention policies, and resource settings to evolve without coupling observability changes to application releases.
 
 ![Custom Grafana dashboard showing application and cluster telemetry](docs/images/grafana-custom-dashboard.png)
 
@@ -30,7 +32,7 @@ The observability stack is maintained separately from the application and cluste
 - [Key Engineering Decisions](#key-engineering-decisions)
 - [Repository Responsibilities](#repository-responsibilities)
 - [Dashboards and PromQL Queries](#dashboards-and-promql-queries)
-- [Alerting](#alerting)
+- [Alerting Status](#alerting-status)
 - [Prerequisites](#prerequisites)
 - [Setup and Usage](#setup-and-usage)
 - [Verification](#verification)
@@ -43,10 +45,11 @@ The observability stack is maintained separately from the application and cluste
 
 
 ## Overview
-
 This repository contains the Terraform configuration used to deploy and manage a production-style monitoring and observability stack on an existing Amazon EKS cluster.
 
-Terraform uses Helm charts to install the `kube-prometheus-stack` and `metrics-server`. The `kube-prometheus-stack` deploys the core monitoring components required to collect, store, visualize, and evaluate Kubernetes and application metrics:
+The platform uses **Terraform and Helm charts** to automate the deployment of its monitoring components. Terraform manages the Helm releases that install and configure `kube-prometheus-stack` and `metrics-server` inside the cluster.
+
+The `kube-prometheus-stack` deploys:
 
 - Prometheus
 - Grafana
@@ -55,16 +58,15 @@ Terraform uses Helm charts to install the `kube-prometheus-stack` and `metrics-s
 - node-exporter
 - kube-state-metrics
 
-Terraform also manages the supporting Kubernetes resources required by the observability platform, including:
+Terraform also manages the supporting Kubernetes resources and monitoring configuration, including:
 
 - The dedicated `monitoring` namespace
-- Helm release configuration and values
+- Helm release values and version configuration
 - Application-specific `ServiceMonitor` resources
-- Prometheus alert rules
 - Grafana and Prometheus ingress resources
 - Persistent-volume configuration
 - CPU and memory requests and limits
-- Metrics retention and storage limits
+- Prometheus retention and storage limits
 
 Prometheus collects infrastructure telemetry from the EKS cluster and application-level metrics from four instrumented Craftista microservices:
 
@@ -75,9 +77,9 @@ Prometheus collects infrastructure telemetry from the EKS cluster and applicatio
 | Recommendation | Go and Gin | `/metrics` | Request rate, latency, and recommendations served |
 | Voting | Java and Spring Boot | `/actuator/prometheus` | HTTP performance, JVM memory, garbage collection, threads, CPU, and database connection-pool metrics |
 
-The Prometheus Operator uses `ServiceMonitor` resources to discover each application's metrics endpoint through Kubernetes labels. This avoids maintaining static scrape targets and allows new services to be added through Kubernetes-native configuration.
+The Prometheus Operator uses `ServiceMonitor` resources to discover each application's metrics endpoint through Kubernetes labels. This removes the need to maintain static scrape targets and provides a Kubernetes-native approach for onboarding monitored services.
 
-Grafana queries Prometheus to provide visibility into:
+Grafana uses Prometheus as its primary data source and provides visibility into:
 
 - EKS cluster and node health
 - Pod and workload resource consumption
@@ -88,23 +90,30 @@ Grafana queries Prometheus to provide visibility into:
 - Database connection status
 - JVM and Node.js runtime behavior
 
-Alertmanager provides the alert-routing layer for infrastructure and application conditions. The platform supports alert rules for conditions such as elevated HTTP error rates, unavailable database connections, unhealthy dependencies, high JVM memory utilization, and unavailable Prometheus targets.
+Prometheus and Grafana use persistent volumes backed by Amazon EBS so that metrics and dashboard state can survive pod restarts. The AWS Load Balancer Controller provides HTTPS access to the monitoring interfaces through Application Load Balancer ingress, with TLS certificates managed through AWS Certificate Manager and DNS resolution provided by Amazon Route 53.
 
-Prometheus and Grafana use persistent volumes backed by Amazon EBS so that metrics and dashboard state can survive pod restarts. The AWS Load Balancer Controller provides HTTPS access to the monitoring interfaces through Application Load Balancer ingress, with certificates managed through AWS Certificate Manager and DNS records managed through Amazon Route 53.
+Alertmanager is installed as part of the `kube-prometheus-stack`; however, automated application alert rules and external notification routing have not yet been fully implemented. Initial alert conditions were explored manually, while version-controlled `PrometheusRule` resources and Alertmanager receiver configuration are reserved for the next project phase.
 
-The observability stack is maintained separately from the application and EKS infrastructure repositories. This separation allows monitoring configuration, dashboards, alert rules, retention policies, and scrape targets to evolve independently from application releases.
+The observability stack is maintained separately from the application and EKS infrastructure repositories. This separation allows monitoring configuration, dashboards, scrape targets, retention policies, and resource settings to evolve independently from application releases and cluster-provisioning changes.
 
-By managing the complete setup with Terraform and Helm, the monitoring platform remains repeatable, version-controlled, and reviewable. Infrastructure changes can be inspected with `terraform plan` and deployed consistently with `terraform apply`, eliminating the need for manual installation and configuration through the Kubernetes cluster.
+By managing the monitoring setup with Terraform and Helm charts, the platform remains repeatable, version-controlled, and reviewable. Infrastructure changes can be inspected through `terraform plan` and deployed consistently through `terraform apply`, reducing configuration drift and eliminating the need for manual installation through the Kubernetes cluster.
 
 ## What This Project Demonstrates
 
-- End-to-end metrics collection for an Amazon EKS cluster and four polyglot microservices
-- Automatic scrape-target discovery with Prometheus Operator `ServiceMonitor` resources
-- Cluster, workload, runtime, database, and application-level telemetry in Grafana
-- PromQL-based request-rate, error-rate, and P95-latency analysis
-- Kubernetes and application alert rules managed as code
-- Persistent metrics and dashboard storage backed by Amazon EBS
-- HTTPS access through AWS Load Balancer Controller-managed ALB ingress
+- Automated deployment of a Kubernetes monitoring stack on Amazon EKS using **Terraform and Helm charts**
+- Terraform-managed Helm releases for Prometheus, Grafana, Alertmanager, metrics-server, node-exporter, and kube-state-metrics
+- End-to-end metrics collection across the EKS cluster and four polyglot microservices
+- Application instrumentation for services written in Node.js, Python, Go, and Java
+- Kubernetes-native metrics discovery using Prometheus Operator `ServiceMonitor` resources
+- Infrastructure visibility covering cluster, node, pod, deployment, and workload health
+- Application-level visibility covering request rates, HTTP errors, P95 latency, dependency health, database connectivity, and runtime behavior
+- PromQL queries for investigating application performance and validating dashboard metrics
+- Custom Grafana dashboards for correlating infrastructure health with application behavior
+- Persistent Prometheus and Grafana storage using Amazon EBS and the EBS CSI driver
+- HTTPS access to the monitoring interfaces through AWS Load Balancer Controller-managed ALB ingress
+- Separation of observability, application delivery, and cluster infrastructure into independently managed repositories
+- Explicit CPU, memory, storage, and Prometheus retention settings for predictable resource consumption
+- A foundation for the next project phase: version-controlled Prometheus alert rules and automated Alertmanager notification routing
 
 
 ## Architecture
@@ -202,23 +211,31 @@ histogram_quantile(
 ![P95 request latency in Prometheus](docs/images/prometheus-latency-p95.png)
 *Figure 6. P95 request-latency analysis calculated from Prometheus histogram buckets over a five-minute observation window.*
 
-## Alerting
+## Alerting Status
 
-The standard `kube-prometheus-stack` rule set covers Kubernetes control-plane, node, kubelet, workload, and Prometheus health.
+Alertmanager is deployed as part of the `kube-prometheus-stack`; however, automated application-level alerting and external notification routing are not yet fully implemented.
 
-Application rules add service-specific detection for conditions such as:
+During the initial implementation, alert conditions were explored and tested manually. These tests helped identify the application signals that should become formal Prometheus alert rules, including:
 
 - Elevated HTTP 5xx error rates
+- Sustained P95 request latency
 - Unavailable database connections
+- Unhealthy downstream dependencies
 - High JVM heap utilization
-- Unhealthy service dependencies
-- Excessive request latency
 - Unavailable Prometheus scrape targets
 
-![Application alert rules and Alertmanager configuration](docs/images/alertmanager-rules.png)
-*Figure 7. Application-level alert rules covering elevated error rates, database availability, and JVM memory utilization.*
+The next phase will manage these conditions through version-controlled `PrometheusRule` resources and configure Alertmanager receivers for an approved notification channel.
 
-Alertmanager is deployed with the stack. A production rollout should configure an approved receiver such as Slack, email, PagerDuty, or another incident-management platform and store receiver credentials outside Terraform values.
+Planned validation will cover the complete alert lifecycle:
+
+1. Introduce a controlled application failure.
+2. Confirm that the corresponding metric changes.
+3. Verify that the Prometheus alert enters the pending state.
+4. Confirm that the alert transitions to the firing state.
+5. Verify that Alertmanager receives and routes the alert.
+6. Restore the service and confirm that the alert resolves.
+
+Until this workflow is automated and tested end to end, alerting is treated as a planned capability rather than a completed production feature.
 
 ## Prerequisites
 
@@ -684,18 +701,34 @@ kubectl get apiservice v1beta1.metrics.k8s.io
 
 ## Future Improvements
 
-- Add Loki and Promtail for centralized log aggregation and logs-to-metrics correlation
-- Add OpenTelemetry instrumentation and Tempo for distributed tracing across services
-- Provision hardened Alertmanager receivers with secrets managed outside Terraform state
+### Alerting and Incident Response
+
+- Define application alert conditions as version-controlled `PrometheusRule` resources
+- Configure Alertmanager routing and external notification receivers
+- Store receiver credentials in Kubernetes Secrets or AWS Secrets Manager rather than Terraform state
+- Validate the complete pending, firing, notification, recovery, and resolved alert lifecycle
+- Document alert severity, ownership, response expectations, and runbook links
+- Add service-level objectives and multi-window burn-rate alerts for availability and latency
+
+### Logs and Distributed Tracing
+
+- Add Loki and Promtail for centralized log aggregation and metrics-to-logs correlation
+- Add OpenTelemetry instrumentation and Tempo for distributed tracing across the microservices
+- Correlate metrics, logs, and traces through shared service and environment labels
+
+### Infrastructure Automation and Security
+
+- Add GitHub Actions workflows for Terraform formatting, validation, planning, and controlled deployment
+- Add Checkov and Trivy scanning for Terraform, Kubernetes, and container security issues
+- Validate Prometheus rules and Grafana configuration in CI before deployment
+- Restrict monitoring interfaces through private ingress, identity-aware authentication, or VPN connectivity
+
+### Configuration and Scalability
+
 - Package custom Grafana dashboards as version-controlled Kubernetes resources
-- Manage Prometheus application rules as version-controlled infrastructure
-- Add GitHub Actions checks for Terraform formatting and validation
-- Add Checkov or Trivy configuration scanning
-- Add a controlled Terraform deployment workflow
-- Add service-level objectives for availability and latency
-- Add multi-window burn-rate alerts
-- Replace portfolio-scale `gp2` storage with environment-specific storage classes and retention sizing
-- Restrict monitoring interfaces with private ingress, identity-aware authentication, or VPN connectivity
+- Replace the portfolio-scale `gp2` configuration with environment-specific storage classes
+- Size Prometheus retention and persistent storage according to metric cardinality and environment requirements
+- Add environment-specific resource requests and limits for the monitoring components
 
 ## Screenshot Structure
 
